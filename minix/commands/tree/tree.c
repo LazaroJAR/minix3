@@ -17,14 +17,9 @@ typedef struct Node
     struct Node* next_sibling;
 } Node;
 
-typedef struct DirectoryTree
-{
-    Node* root;
-} DirectoryTree;
+
 
 Node* CreateNode(const char* name, int depth);
-DirectoryTree* CreateTree(void);
-void SetRoot(DirectoryTree* tree, const char* name);
 void InsertChild(Node* father, Node* child);
 void PrintTree(Node* node);
 int GetFileInfo(const char* path, struct stat* info);
@@ -33,7 +28,6 @@ void ScanDirectory(Node* node, const char* path);
 int main(int argc, char* argv[])
 {
     char path[PATH_MAX];
-    DirectoryTree* tree;
     Node* root_node;
 
     if (argc < 2)
@@ -48,13 +42,6 @@ int main(int argc, char* argv[])
                     path, strerror(errno));
             return 1;
         }
-    }
-
-    tree = CreateTree();
-    if (tree == NULL)
-    {
-        fprintf(stderr, "Error: No se pudo crear el árbol\n");
-        return 1;
     }
 
     const char* name_root;
@@ -72,7 +59,6 @@ int main(int argc, char* argv[])
     if (root_node == NULL)
     {
         fprintf(stderr, "Error: No se pudo crear el nodo raíz\n");
-        free(tree);
         return 1;
     }
 
@@ -89,7 +75,7 @@ int main(int argc, char* argv[])
         ScanDirectory(root_node, path);
     }
     PrintTree(root_node);
-
+    free(root_node);
     return 0;
 }
 
@@ -115,25 +101,6 @@ Node* CreateNode(const char* name, int depth)
     return new_node;
 }
 
-DirectoryTree* CreateTree(void)
-{
-    DirectoryTree* tree = (DirectoryTree*)malloc(sizeof(DirectoryTree));
-    if (tree == NULL) {
-        return NULL;
-    }
-    tree->root = NULL;
-    return tree;
-}
-
-void SetRoot(DirectoryTree* tree, const char* name)
-{
-    if (tree->root != NULL)
-    {
-        printf("El árbol ya tiene raíz\n");
-        return;
-    }
-    tree->root = CreateNode(name, 0);
-}
 
 void InsertChild(Node* father, Node* child)
 {
