@@ -17,6 +17,8 @@ static unsigned balance_timeout;
 
 #define BALANCE_TIMEOUT	5 /* how often to balance queues in seconds */
 
+#define QUANTUM_PENALTY_LIMIT 3 /* Límite de quantums que necesita consumir el proceso para ser penalizado*/
+
 static int schedule_process(struct schedproc * rmp, unsigned flags);
 
 #define SCHEDULE_CHANGE_PRIO	0x1
@@ -50,7 +52,7 @@ static void pick_cpu(struct schedproc * proc)
 #ifdef CONFIG_SMP
 	unsigned cpu, c;
 	unsigned cpu_load = (unsigned) -1;
-	
+
 	if (machine.processors_count == 1) {
 		proc->cpu = machine.bsp_id;
 		return;
@@ -96,9 +98,7 @@ int do_noquantum(message *m_ptr)
 	}
 
 	rmp = &schedproc[proc_nr_n];
-	if (rmp->priority < MIN_USER_Q) {
-		rmp->priority += 1; /* lower priority */
-	}
+	rmp ->quantum_consumed_count++;
 
 	if ((rv = schedule_process_local(rmp)) != OK) {
 		return rv;
@@ -141,9 +141,9 @@ int do_start_scheduling(message *m_ptr)
 {
 	register struct schedproc *rmp;
 	int rv, proc_nr_n, parent_nr_n;
-	
+
 	/* we can handle two kinds of messages here */
-	assert(m_ptr->m_type == SCHEDULING_START || 
+	assert(m_ptr->m_type == SCHEDULING_START ||
 		m_ptr->m_type == SCHEDULING_INHERIT);
 
 	/* check who can send you requests */
@@ -161,6 +161,7 @@ int do_start_scheduling(message *m_ptr)
 	rmp->endpoint     = m_ptr->m_lsys_sched_scheduling_start.endpoint;
 	rmp->parent       = m_ptr->m_lsys_sched_scheduling_start.parent;
 	rmp->max_priority = m_ptr->m_lsys_sched_scheduling_start.maxprio;
+	rmp->quantum_consumed_count = 0;  /*Inicialización del nuevo campo en do_strat_scheduling*/
 	if (rmp->max_priority >= NR_SCHED_QUEUES) {
 		return EINVAL;
 	}
@@ -185,17 +186,17 @@ int do_start_scheduling(message *m_ptr)
 		/* FIXME set the cpu mask */
 #endif
 	}
-	
+
 	switch (m_ptr->m_type) {
 
 	case SCHEDULING_START:
 		/* We have a special case here for system processes, for which
-		 * quanum and priority are set explicitly rather than inherited 
+		 * quanum and priority are set explicitly rather than inherited
 		 * from the parent */
 		rmp->priority   = rmp->max_priority;
 		rmp->time_slice = m_ptr->m_lsys_sched_scheduling_start.quantum;
 		break;
-		
+
 	case SCHEDULING_INHERIT:
 		/* Inherit current priority and time slice from parent. Since there
 		 * is currently only one scheduler scheduling the whole system, this
@@ -207,8 +208,8 @@ int do_start_scheduling(message *m_ptr)
 		rmp->priority = schedproc[parent_nr_n].priority;
 		rmp->time_slice = schedproc[parent_nr_n].time_slice;
 		break;
-		
-	default: 
+
+	default:
 		/* not reachable */
 		assert(0);
 	}
@@ -357,10 +358,19 @@ void balance_queues(void)
 
 	for (proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
 		if (rmp->flags & IN_USE) {
-			if (rmp->priority > rmp->max_priority) {
+            /*Analiza si el proceso no consumió su quantum para aumentar su prioridad*/
+			if (rmp->priority > rmp->max_priority && rmp->quantum_consumed_count == 0)
+            {
 				rmp->priority -= 1; /* increase priority */
 				schedule_process_local(rmp);
 			}
+            /*Analiza si el proceso superó el límite de consumo de quantm, para reducir su prioridad*/
+			else if(rmp->quantum_consumed_count >= QUANTUM_PENALTY_LIMIT && rmp->priority < MIN_USER_Q)
+            {
+                rmp->priority += 1; /* decrease priority */
+				schedule_process_local(rmp);
+            }
+            rmp->quantum_consumed_count = 0; /*Restablecer el contador una vez finaliza la ventana activa*/
 		}
 	}
 
